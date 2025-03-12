@@ -37,9 +37,9 @@ def check_url_string(url: str):
     return True
 
 
-def requests_response(url: str):
+def requests_response(url: str, session: requests.Session):
     try:
-        response = requests.get(url, headers=_REQUESTS_HEADER)
+        response = session.get(url, headers=_REQUESTS_HEADER)
         return response
 
     except requests.ConnectionError or requests.TooManyRedirects as e:

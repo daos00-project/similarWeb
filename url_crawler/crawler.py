@@ -1,6 +1,6 @@
 import re
+import requests
 from urllib.parse import urljoin
-
 from url_crawler.selenium_scraper import SeleniumScraper
 from url_crawler.sitemap_crawler import SitemapCrawler
 from utils.scrape_utilities import (
@@ -27,48 +27,52 @@ class LinkCrawler:
 
         self.base_url = get_base_url(self.url)
         robots_url = urljoin(self.url, "/robots.txt")
-        response = requests_response(robots_url)
 
-        if response:
-            if response.status_code == 200:
-                regex_url = "^site-?map:\\s*(.+)$"
-                pattern = re.compile(regex_url, re.MULTILINE | re.IGNORECASE)
-                robots_links = pattern.findall(response.text)
-                for link in robots_links:
-                    self.unvisited_links.update(link.splitlines())
-        else:
-            print("No robots.txt found")
+        with requests.Session() as session:
+            response = requests_response(robots_url, session)
 
-        if self.unvisited_links:
-            sitemap_crawler = SitemapCrawler(
-                self.url,
-                self.base_url,
-                self.unvisited_links
-            )
+            if response:
+                if response.status_code == 200:
+                    regex_url = "^site-?map:\\s*(.+)$"
+                    pattern = re.compile(regex_url, re.MULTILINE | re.IGNORECASE)
+                    robots_links = pattern.findall(response.text)
+                    for link in robots_links:
+                        self.unvisited_links.update(link.splitlines())
+            else:
+                print("No robots.txt found")
 
-            links = sitemap_crawler.get_links()
-        else:
-            sitemap_crawler = SitemapCrawler(
-                self.url,
-                self.base_url
-            )
+            if self.unvisited_links:
+                sitemap_crawler = SitemapCrawler(
+                    self.url,
+                    self.base_url,
+                    session,
+                    self.unvisited_links
+                )
 
-            links = sitemap_crawler.get_links()
+                links = sitemap_crawler.get_links()
+            else:
+                sitemap_crawler = SitemapCrawler(
+                    self.url,
+                    self.base_url,
+                    session
+                )
 
-        if not links:
-            print("Selenium - Homepage scrape for links.")
-            scraper = SeleniumScraper(
-                self.url,
-                self.base_url
-            )
-            try:
-                scraper.get_links()
-                links.update(scraper.get_collected_links())
+                links = sitemap_crawler.get_links()
 
-            except Exception as e:
-                print("Selenium scrape error: ", e)
+            if not links:
+                print("Selenium - Homepage scrape for links.")
+                scraper = SeleniumScraper(
+                    self.url,
+                    self.base_url
+                )
+                try:
+                    scraper.get_links()
+                    links.update(scraper.get_collected_links())
 
-            finally:
-                scraper.close()
+                except Exception as e:
+                    print("Selenium scrape error: ", e)
+
+                finally:
+                    scraper.close()
 
         return links

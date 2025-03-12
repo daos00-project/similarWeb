@@ -9,10 +9,10 @@ def main():
     # url = "https://imdb.com/"
     # url = "https://developer.mozilla.org/sitemaps/en-us/sitemap.xml.gz"
     # url = "https://vse.cz/"
-    # url = "https://www.vse.cz/informace-o-vse/profil-skoly/vyrocni-zpravy/"
+    url = "https://www.vse.cz/informace-o-vse/profil-skoly/vyrocni-zpravy/"
     # url = "https://example.com/"
     # url = "https://scrapfly.io/"
-    url = "https://www.uradprace.cz/"
+    # url = "https://www.uradprace.cz/"
     obj = LinkCrawler(url)
 
     pages_to_scrape = obj.get_links()

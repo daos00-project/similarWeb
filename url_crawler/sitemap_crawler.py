@@ -1,4 +1,5 @@
 import re
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit, urljoin
 from utils.scrape_utilities import requests_response
@@ -19,14 +20,15 @@ _MAX_LINKS = 5000
 
 
 class SitemapCrawler:
-    def __init__(self, url: str, base_url: str, unvisited_links: set = None):
+    def __init__(self, url: str, base_url: str, session: requests.Session, unvisited_links: set = None):
         if unvisited_links is None:
-            self.unvisited_links = _SITEMAPS_LINKS
+            self.unvisited_links = _SITEMAPS_LINKS.copy()
         else:
             self.unvisited_links = unvisited_links
 
         self.url = url
         self.base_url = base_url
+        self.session = session
         self.visited_links = set()
 
     def get_unvisited_links(self) -> set[str]:
@@ -48,18 +50,19 @@ class SitemapCrawler:
 
             print("Scraping: ", link)
 
-            response = requests_response(link)
+            response = requests_response(link, self.session)
             if response.status_code == 200:
                 if response.headers['Content-Type'].startswith(('application/xml', 'text/xml')):
                     soup = BeautifulSoup(response.text, "xml")
                     sitemap_elements = soup.find_all("loc")
 
                     if sitemap_elements:
-                        response = requests_response(sitemap_elements[0].get_text(strip=True))
+                        response = requests_response(sitemap_elements[0].get_text(strip=True), self.session)
 
                         if response.headers['Content-Type'].startswith(('application/xml', 'text/xml')):
                             for sitemap_ele in sitemap_elements:
                                 self.unvisited_links.add(sitemap_ele.get_text(strip=True))
+                                print("added to unvisited_links: ", sitemap_ele.get_text(strip=True))
                         elif response.headers['Content-Type'].startswith(('text/html', 'application/pdf')):
                             for link in sitemap_elements:
                                 links.add(link.get_text(strip=True))
@@ -75,7 +78,9 @@ class SitemapCrawler:
                     if txt_links:
                         for line in txt_links:
                             if pattern.match(line.strip()):
-                                links.add(line.strip())
+                                if not bool(urlsplit(line).netloc):
+                                    full_link = urljoin(self.base_url, line)
+                                    links.add(full_link.strip())
                     else:
                         raise Exception("Exception inside SitemapCrawler, scrape text/plain. url: ", link,
                                         "Content-Type: ", response.headers['Content-Type'])
