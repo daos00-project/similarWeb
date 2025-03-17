@@ -1,5 +1,6 @@
 import re
 import requests
+from collections import Counter
 from urllib.parse import urljoin
 from url_crawler.selenium_scraper import SeleniumScraper
 from url_crawler.sitemap_crawler import SitemapCrawler
@@ -7,72 +8,91 @@ from utils.scrape_utilities import (
     check_url_string,
     get_base_url,
     requests_response,
+    check_webpage_response,
 )
 
 
 class LinkCrawler:
     def __init__(self, url: str):
-        url.strip()
-        if not url.endswith('/'):
-            url += '/'
-        self.url = url
+        clean_url = url.strip()
+        with requests.Session() as session:
+            response = requests_response(clean_url, session)
+            requests_url = response.url
+
+        self.url = requests_url.strip('/')
         self.base_url = None
         self.unvisited_links = set()
+        self.collected_internal_links = Counter()
 
-    def get_links(self) -> set[str]:
-        links = set()
+    def scrape_htmls(self):
 
         if not check_url_string(self.url):
-            return links
+            return False
+        if not check_webpage_response(self.url):
+            return False
 
         self.base_url = get_base_url(self.url)
-        robots_url = urljoin(self.url, "/robots.txt")
 
-        with requests.Session() as session:
-            response = requests_response(robots_url, session)
+        scraper = SeleniumScraper(
+            self.url,
+            self.base_url
+        )
 
-            if response:
-                if response.status_code == 200:
-                    regex_url = "^site-?map:\\s*(.+)$"
-                    pattern = re.compile(regex_url, re.MULTILINE | re.IGNORECASE)
-                    robots_links = pattern.findall(response.text)
-                    for link in robots_links:
-                        self.unvisited_links.update(link.splitlines())
-            else:
-                print("No robots.txt found")
+        self.collected_internal_links.update(self.scrape_links(scraper))
+        scraper.set_collected_internal_links(self.collected_internal_links)
 
-            if self.unvisited_links:
-                sitemap_crawler = SitemapCrawler(
-                    self.url,
-                    self.base_url,
-                    session,
-                    self.unvisited_links
-                )
+        scraper.scrape_html_documents()
+        html_documents = scraper.get_all_html_documents()
+        scraper.close_driver()
 
-                links = sitemap_crawler.get_links()
-            else:
-                sitemap_crawler = SitemapCrawler(
-                    self.url,
-                    self.base_url,
-                    session
-                )
+        return html_documents
 
-                links = sitemap_crawler.get_links()
+    def scrape_links(self, scraper) -> Counter:
+        try:
+            self.collected_internal_links.update(scraper.scrape_links())
 
-            if not links:
-                print("Selenium - Homepage scrape for links.")
-                scraper = SeleniumScraper(
-                    self.url,
-                    self.base_url
-                )
-                try:
-                    scraper.get_links()
-                    links.update(scraper.get_collected_links())
+        except Exception as e:
+            print(f"Selenium scrape error: {e}. Trying again.")
+            try:
+                self.collected_internal_links.update(scraper.scrape_links())
 
-                except Exception as e:
-                    print("Selenium scrape error: ", e)
+            except Exception as e:
+                print(f"Selenium scrape error: {e}. Get links from sitemaps.")
 
-                finally:
-                    scraper.close()
+        if not self.collected_internal_links:
+            with requests.Session() as session:
+                robots_url = urljoin(self.base_url, "/robots.txt")
+                response = requests_response(robots_url, session)
 
-        return links
+                if response:
+                    if response.status_code == 200:
+                        regex_url = "^site-?map:\\s*(.+)$"
+                        pattern = re.compile(regex_url, re.MULTILINE | re.IGNORECASE)
+                        robots_links = pattern.findall(response.text)
+                        for link in robots_links:
+                            self.unvisited_links.update(link.splitlines())
+                else:
+                    print("No robots.txt found")
+
+                if self.unvisited_links:
+                    sitemap_crawler = SitemapCrawler(
+                        self.url,
+                        self.base_url,
+                        session,
+                        self.unvisited_links
+                    )
+
+                    self.collected_internal_links.update(sitemap_crawler.scrape_links())
+                else:
+                    sitemap_crawler = SitemapCrawler(
+                        self.url,
+                        self.base_url,
+                        session
+                    )
+
+                    self.collected_internal_links.update(sitemap_crawler.scrape_links())
+
+        return self.get_collected_internal_links()
+
+    def get_collected_internal_links(self):
+        return self.collected_internal_links
