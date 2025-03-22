@@ -1,7 +1,7 @@
 import re
 import requests
 from collections import Counter
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 from url_crawler.selenium_scraper import SeleniumScraper
 from url_crawler.sitemap_crawler import SitemapCrawler
 from utils.scrape_utilities import (
@@ -11,15 +11,18 @@ from utils.scrape_utilities import (
     check_webpage_response,
 )
 
+_MIN_REQUIRED_LINKS = 5
+
 
 class LinkCrawler:
     def __init__(self, url: str):
         clean_url = url.strip()
-        with requests.Session() as session:
-            response = requests_response(clean_url, session)
-            requests_url = response.url
+        parsed_url = urlsplit(clean_url)
+        reformatted_url = get_base_url(clean_url) + parsed_url.path
+        if parsed_url.query:
+            reformatted_url += "?" + parsed_url.query
 
-        self.url = requests_url.strip('/')
+        self.url = reformatted_url
         self.base_url = None
         self.unvisited_links = set()
         self.collected_internal_links = Counter()
@@ -59,7 +62,7 @@ class LinkCrawler:
             except Exception as e:
                 print(f"Selenium scrape error: {e}. Get links from sitemaps.")
 
-        if not self.collected_internal_links:
+        if len(self.collected_internal_links) < _MIN_REQUIRED_LINKS:
             with requests.Session() as session:
                 robots_url = urljoin(self.base_url, "/robots.txt")
                 response = requests_response(robots_url, session)

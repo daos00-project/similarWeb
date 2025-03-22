@@ -11,6 +11,7 @@ from utils.scrape_utilities import get_base_url, check_webpage_response
 
 _MAX_HTMLS_TO_SCRAPE = 5
 
+
 class SeleniumScraper:
     def __init__(self, url: str, base_url: str):
         chrome_options = Options()
@@ -87,53 +88,64 @@ class SeleniumScraper:
         """
         # Homepage should contain the most information about the site -> scrape html
         if self.base_url not in self.scraped_links:
-            html_dom = self.get_html_dom(self.base_url)
-            if not html_dom:
-                print("Empty html. Skipping")
+            if check_webpage_response(self.base_url):
+                html_dom = self.get_html_dom(self.base_url)
+                if not html_dom:
+                    print("Empty html. Skipping")
 
-            reduced_html_dom = f"{self.base_url}\n" + self.reduce_html_dom(html_dom)
-            self.scraped_htmls.append(reduced_html_dom)
-            self.scraped_links.append(self.base_url.strip('/'))
-            print("HTML Added for: ", self.base_url)
+                reduced_html_dom = f"{self.base_url}\n" + self.reduce_html_dom(html_dom)
+                self.scraped_htmls.append(reduced_html_dom)
+                self.scraped_links.append(self.base_url.strip('/'))
+                print("HTML Added for: ", self.base_url)
 
-        urls_to_visit = []
-        flag = False
+        urls_to_scrape = []
+        given_url_path_segments = self.get_path_segments(self.url)
+        similar = False
         for url, count in self.collected_internal_links.most_common(200):
             print(f"{url}: {count} mentions")
 
             if url in self.scraped_links:
-                print("Already visited.")
                 continue
 
             # In case of high variety mode, if path of url has higher depth or has similar path (path segments until
             # before last segment are same), skip.
             if variety:
-                path_segments = self.get_path_segments(url)[:-1]
-                if len(path_segments) > 0:
-                    for visited in self.scraped_links:
-                        visited_path = self.get_path_segments(visited)[:-1]
-                        if path_segments == visited_path or len(path_segments) > len(visited_path):
-                            print("Not accepted path.")
-                            flag = True
+                path_segments = self.get_path_segments(url)
+                if len(path_segments) == 1:
+                    pass
+                elif len(given_url_path_segments) <= 1:
+                    if len(path_segments) > 1:
+                        continue
+                elif len(given_url_path_segments) > 1:
+                    potential_urls = self.scraped_links.copy()
+                    potential_urls.extend(urls_to_scrape)
+                    for stored_url in potential_urls:
+                        stored_path_segments = self.get_path_segments(stored_url)
+                        if len(stored_path_segments) == 0:
+                            continue
+
+                        if len(path_segments) > len(stored_path_segments) or path_segments[:-1] == stored_path_segments[:-1]:
+                            similar = True
                             break
 
-            if flag:
-                flag = False
+            if similar:
+                similar = False
                 continue
 
             if not check_webpage_response(url):
                 continue
 
-            urls_to_visit.append(url)
-            if len(urls_to_visit) > (_MAX_HTMLS_TO_SCRAPE - len(self.scraped_links)):
+            urls_to_scrape.append(url)
+            if len(urls_to_scrape) > (_MAX_HTMLS_TO_SCRAPE - len(self.scraped_links)):
                 break
 
-        if self.multiple_tab_scraping(urls_to_visit):
+        if len(urls_to_scrape) > (_MAX_HTMLS_TO_SCRAPE - len(self.scraped_links)):
+            self.multiple_tab_scraping(urls_to_scrape)
             if len(self.scraped_htmls) > 4:
                 return True
 
         if len(self.scraped_htmls) < 6 and variety is True:
-            print("NOT ENOUGH HTMLS, SCRAPE AGAIN WITH LESS VARIETY.")
+            print("Not enough HTMLs, scraping URLs with less variety.")
             self.scrape_html_documents(variety=False)
 
         return True
@@ -169,13 +181,13 @@ class SeleniumScraper:
 
         return self.driver.page_source
 
-    def multiple_tab_scraping(self, urls_to_visit):
-        print("Multiple tabs scraping urls:", urls_to_visit)
+    def multiple_tab_scraping(self, urls_to_scrape):
+        print("Multiple tabs scraping urls:", urls_to_scrape)
         try:
-            self.driver.get(urls_to_visit[0])
+            self.driver.get(urls_to_scrape[0])
             self.driver.set_window_size(1920, 5000)
 
-            for url in urls_to_visit[1:]:
+            for url in urls_to_scrape[1:]:
                 self.driver.switch_to.new_window('tab')
                 self.driver.get(url)
 
@@ -188,7 +200,7 @@ class SeleniumScraper:
                 if not html_dom:
                     continue
 
-                url = urls_to_visit[idx]
+                url = urls_to_scrape[idx]
                 reduced_html_dom = f"{url}\n" + self.reduce_html_dom(html_dom)
                 self.scraped_htmls.append(reduced_html_dom)
                 self.scraped_links.append(url.strip('/'))
@@ -209,8 +221,10 @@ class SeleniumScraper:
         for extract_tag in reduced_html_dom(
                 ["link", "script", "noscript", "style", "svg", "canvas", "path", "animate", "animateMotion", "iframe"]):
             extract_tag.extract()
+
         for tag in reduced_html_dom.find_all(True):
             tag.attrs.pop("class", None)
+
         for img_tag in reduced_html_dom.find_all("img"):
             copy = img_tag.copy_self()
             for attr in copy.attrs.keys():

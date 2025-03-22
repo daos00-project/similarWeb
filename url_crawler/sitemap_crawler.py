@@ -1,4 +1,3 @@
-import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit, urljoin
@@ -50,7 +49,7 @@ class SitemapCrawler:
                 link = urljoin(self.base_url, link)
 
             print("Scraping: ", link)
-
+            response = None
             try:
                 response = requests_response(link, self.session)
                 if response:
@@ -60,7 +59,6 @@ class SitemapCrawler:
                             sitemap_elements = soup.find_all("loc")
 
                             if sitemap_elements:
-                                response.close()
                                 for element in sitemap_elements:
                                     check_response = requests_response(element.get_text(strip=True), self.session)
                                     if check_response:
@@ -124,8 +122,8 @@ class SitemapCrawler:
                             links.update(html_links)
 
                         else:
-                            raise Exception("Exception inside SitemapCrawler, scrape unknown. url: ", link, "Content-Type: ",
-                                            response.headers['Content-Type'])
+                            raise Exception("Exception inside SitemapCrawler, scrape unknown. url: ", link,
+                                            "Content-Type: ", response.headers['Content-Type'])
             finally:
                 if response:
                     response.close()
